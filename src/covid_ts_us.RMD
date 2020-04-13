@@ -1,0 +1,61 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+library(jsonlite)
+library(tidyverse)
+library(lubridate)
+library(conflicted)
+conflict_prefer("filter", "dplyr")
+conflict_prefer("lead", "dplyr")
+source("util.R")
+```
+
+```{r}
+metro_census <- get_metro_census()
+metro_pop <- metro_census %>% 
+  group_by(metro) %>% 
+  summarise(population = sum(population)) %>% 
+  arrange(desc(population)) %>% 
+  filter(population > 1e6) %>% 
+  ungroup()
+save(metro_census, metro_pop, file = "../data/metro.RDA")
+```
+
+```{r}
+load("../data/metro.RDA")
+ts_us <- get_jhu_covid_usts()
+
+
+```
+
+
+```{r}
+metro_ts <- metro_census %>% 
+  mutate(fips = as.numeric(fips)) %>% 
+  select(metro, fips) %>% 
+  right_join(ts_us, by = "fips") %>% 
+  group_by(metro, date) %>%
+  summarise(confirmed = sum(confirmed),
+            deaths = sum(deaths)) %>% 
+  filter(confirmed > 0) %>% 
+  mutate(days_from_confirmed = row_number())
+
+show_metro = metro_pop$metro[6]
+p <- metro_ts %>% 
+  filter(metro == show_metro) %>% 
+  ggplot(aes(x = days_from_confirmed, y = confirmed)) + geom_point() +
+  geom_line() + scale_y_log10() + labs(title = show_metro, x = "Days from 1st confirmed case")
+
+plotly::ggplotly(p)
+
+ggiraph::girafe(ggobj = p + geom_point_interactive(aes(tooltip = metro)))
+  
+```
+

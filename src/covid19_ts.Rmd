@@ -1,0 +1,251 @@
+---
+title: "COVID-19 Time Series by Metro Data Vis Notebook"
+output: html_notebook
+---
+# Prep
+
+## Load Libraries
+
+```{r}
+library(jsonlite)
+library(tidyverse)
+library(lubridate)
+library(conflicted)
+# library(googlesheets)
+
+# install.packages("sf", configure.args = "--with-proj-lib=/usr/local/lib/")
+
+conflict_prefer("filter", "dplyr")
+conflict_prefer("lead", "dplyr")
+```
+# Get covid-19 data
+
+## Use JHU api
+
+Incidence data collated by John Hopkins University
+Acquiring these data is easy. The time-series format they provide is the most convenient for our purposes. We’ll also remove columns of US cases associated with the Diamond Princess cruise ship because we can assume that those cases were (home) quarantined on repatriation and were unlikely, or at least a lot less likely, to give rise to further cases. We also shift the dates in the JHU data back one day reflect US time zones, somewhat approximately, because the original dates are with respect to midnight UTC (Greenwich time). That is necessary because we will be combining the JHU data with wikipedia-sourced US data, which is tabulated by dates referencing local US time zones.
+
+We also need to difference the JHU data, which is provided as cumulative counts, to get daily incident counts. Incident counts of cases are a lot more epidemiologically useful than cumulative counts. dplyr makes short work of all that.
+
+## Get from US times series
+
+```{r}
+ts_confirmed_us_url <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_US.csv"
+
+ts_confirmed_us <- read_csv(ts_confirmed_us_url, 
+                            col_types = cols(.default = "c"))
+
+names(ts_confirmed_us)
+
+jhu_repo_url <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/"
+
+jhu_comfirmed <- "time_series_covid19_confirmed_US.csv"
+juh_death <- "time_series_covid19_deaths_US.csv"
+
+```
+### Pivot TS
+```{r}
+us_keys <- ts_confirmed_us %>% 
+  select(UID, iso2, iso3, code3, FIPS, Admin2, Province_State,
+         Country_Region, Lat, Long_, Combined_Key) %>% 
+  distinct() %>% 
+  janitor::clean_names() %>% 
+  mutate(fips = as.integer(fips))
+
+us_keys %>% 
+  select(fips) %>% 
+  n_distinct()
+```
+ Both UID and Combined_Key are unique key to the time series. 
+ 
+```{r}
+key_cols <- c("UID", "iso2", "iso3", "code3", "FIPS", "Admin2", "Province_State", "Country_Region", "Lat", "Long_")
+ts_us <- ts_confirmed_us %>% 
+  select(-one_of(key_cols)) %>% 
+  pivot_longer(-Combined_Key, names_to = "date", 
+               values_to = "confirmed") %>%
+  mutate(date = mdy(date),
+         confirmed = as.integer(confirmed)) %>% 
+  janitor::clean_names() 
+# %>% left_join(select(us_keys, fips, combined_key), by = "combined_key")
+```
+
+```{r}
+ts_death_us_url <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_US.csv"
+
+ts_death_us <- read_csv(ts_confirmed_us_url, 
+                            col_types = cols(.default = "c"))
+
+names(ts_death_us)
+
+```
+```{r}
+ts_us <- ts_death_us %>% 
+  select(-one_of(key_cols)) %>% 
+  pivot_longer(-Combined_Key, names_to = "date", 
+               values_to = "deaths") %>%
+  mutate(date = mdy(date),
+         deaths = as.integer(deaths)) %>% 
+  janitor::clean_names() %>% 
+  left_join(ts_us, by = c("combined_key", "date"))
+
+ts_us %>% 
+  left_join(us_keys, by = "combined_key" ) %>% 
+  select(combined_key, fips) %>% 
+  filter(fips < 100) %>% 
+  distinct()
+```
+### Add Census data
+
+```{r}
+library(tidycensus)
+
+v17 <- load_variables(2018, "acs5", cache = TRUE)
+
+census_api_key("d26bdb323e1a7649867b33225248dc93a8d3fb51")
+us_pop <- get_acs(geography = "county", 
+              variables = c(population = "B01001_001E"), 
+              # state = "TX",
+              geometry = TRUE,
+              year = 2018)
+us_pop %>% 
+  arrange(desc(estimate)) %>% 
+  head()
+```
+
+
+### Combine Pop with Data
+
+```{r}
+us_keys <- us_pop %>% 
+  as_tibble() %>% 
+  select(fips = GEOID, population = estimate) %>% 
+  mutate(fips = as.integer(fips)) %>% 
+  right_join(us_keys, by = "fips")
+
+
+```
+### Get metro county 
+The OMB Metropolititan delineation can be downloaded from [Census](https://www.census.gov/geographies/reference-files/time-series/demo/metro-micro/delineation-files.html).
+
+The CSV file used is from the [Core based statistical areas (CBSAs), metropolitan divisions, and combined statistical areas (CSAs)](https://www2.census.gov/programs-surveys/metro-micro/geographies/reference-files/2018/delineation-files/list1_Sep_2018.xls)
+
+
+```{r}
+metro <- read_csv("data/metro_Sep_2018.csv", 
+                  col_types = cols(.default = "c"), 
+                  skip = 2) %>% 
+  select(-`Metropolitan/Micropolitan Statistical Area`) %>% 
+  janitor::clean_names() %>% 
+  mutate(fips = str_c(`fips_state_code`, `fips_county_code`))
+
+metro_fips <- metro %>% 
+  filter(!is.na(csa_title)) %>%
+  select(metro = csa_title, fips)
+
+metro_pop <- metro_fips %>% 
+  mutate(fips = as.numeric(fips)) %>% 
+  left_join(us_keys, by = "fips") %>% 
+  group_by(metro) %>% 
+  summarise(pop = sum(population)) %>% 
+  arrange(desc(pop))
+  
+metro_pop %>% 
+  filter(pop > 2e6)
+
+metro_keys <- metro_fips %>% 
+  mutate(fips = as.numeric(fips)) %>% 
+  left_join(us_keys, by ="fips")
+
+ts_metro <- ts_us %>% 
+  left_join(metro_keys, by = "combined_key") %>% 
+  filter(!is.na(metro)) %>% 
+  group_by(metro, date) %>% 
+  summarise(confirmed = sum(confirmed),
+            deaths = sum(deaths)) %>% 
+  left_join(metro_pop, by = "metro") %>% 
+  filter(confirmed > 0)
+  
+```
+
+
+
+## Use NY Times Open Data
+
+```{r}
+times_url = "https://github.com/nytimes/covid-19-data/raw/master/us-counties.csv"
+us_counties_times <- 
+  read_csv(times_url, col_types = cols(.default = "c")) %>% 
+  mutate(date = ymd(date),
+         cases = as.numeric(cases),
+         deaths = as.numeric(deaths))
+
+us_counties_times %>% 
+  summarize(lastupdate = max(date))
+
+us_counties_times %>% 
+  filter(county == "Harris" & state == "Texas") %>%
+  arrange(desc(date)) %>% 
+  mutate(caseInc = cases - lead(cases), 
+         deathInc = deaths - lead(deaths))  
+```
+
+## Use COVIDtracking to get testing data
+
+```{r}
+# states_history <- jsonlite::stream_in(
+#              file("https://covidtracking.com/api/states/daily"))
+
+states_url <- "https://covidtracking.com/api/v1/states/daily.json"
+
+states_history = fromJSON(states_url) %>% 
+  mutate(date = lubridate::ymd(date)) %>% 
+  mutate(pos_perc = positiveIncrease / totalTestResultsIncrease)
+
+states_history %>% 
+  filter(state == "CT") %>% 
+  select(date, positiveIncrease, pos_perc, deathIncrease, totalTestResultsIncrease) %>% 
+  arrange(desc(date) )
+  
+```
+
+```{r}
+states_history %>% 
+  select(date, state, positiveIncrease, pos_perc, deathIncrease) %>% 
+  arrange(desc(date), desc(pos_perc))
+```
+### Add `leaflet` Map
+
+```{r}
+library(leaflet)
+library(stringr)
+library(sf)
+
+pal <- colorQuantile(palette = "viridis", domain = us_pop$estimate, n = 10)
+
+us_pop %>%
+    st_transform(crs = "+init=epsg:4326") %>%
+    leaflet(width = "100%") %>%
+    addProviderTiles(provider = "CartoDB.Positron") %>%
+    addPolygons(popup = ~ str_extract(NAME, "^([^,]*)"),
+                stroke = FALSE,
+                smoothFactor = 0,
+                fillOpacity = 0.7,
+                color = ~ pal(estimate)) %>%
+    addLegend("bottomright", 
+              pal = pal, 
+              values = ~ estimate,
+              title = "Population percentiles",
+              opacity = 1)
+```
+
+
+## Get data from Datahub
+
+```{r}
+datahub_url <- "https://datahub.io/core/covid-19/r/time-series-19-covid-combined.csv"
+
+time_series <- read_csv(datahub_url, col_types = cols(.default = "c")) %>% 
+  janitor::clean_names()
+```
+

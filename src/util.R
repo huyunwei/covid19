@@ -1,0 +1,84 @@
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(readxl)
+  library(httr)
+  library(tidycensus)
+  library(lubridate)
+  })
+
+get_jhu_covid_usts <- function(jhu_url = "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/",
+                               jhu_confirmed = "time_series_covid19_confirmed_US.csv",
+                               jhu_death = "time_series_covid19_deaths_US.csv")
+
+{
+  # get JHU covid US time series data
+  ts_confirmed_us_url <- paste0(jhu_url, jhu_confirmed)
+  ts_confirmed_us <- read_csv(ts_confirmed_us_url, 
+                              col_types = cols(.default = "c"))
+  us_keys <- ts_confirmed_us %>% 
+    select(UID, iso2, iso3, code3, FIPS, Admin2, Province_State,
+           Country_Region, Lat, Long_, Combined_Key) %>% 
+    distinct() %>% 
+    janitor::clean_names() %>% 
+    mutate(fips = as.integer(fips))
+  key_cols <- c("UID", "iso2", "iso3", "code3", "FIPS", "Admin2", "Province_State", "Country_Region", "Lat", "Long_")
+  ts_us <- ts_confirmed_us %>% 
+    select(-one_of(key_cols)) %>% 
+    pivot_longer(-Combined_Key, names_to = "date", 
+                 values_to = "confirmed") %>%
+    mutate(date = mdy(date),
+           confirmed = as.integer(confirmed)) %>% 
+    janitor::clean_names() 
+  
+  ts_death_us_url <- paste0(jhu_url, jhu_death)
+  ts_death_us <- read_csv(ts_confirmed_us_url, 
+                          col_types = cols(.default = "c"))
+  ts_us <- ts_death_us %>% 
+    select(-one_of(key_cols)) %>% 
+    pivot_longer(-Combined_Key, names_to = "date", 
+                 values_to = "deaths") %>%
+    mutate(date = mdy(date),
+           deaths = as.integer(deaths)) %>% 
+    janitor::clean_names() %>% 
+    left_join(ts_us, by = c("combined_key", "date")) %>% 
+    left_join(select(us_keys, combined_key, fips), by = "combined_key")
+}
+
+
+
+ 
+
+get_metro_census <- function(census_year = 2018,
+                             metro_url = "https://www2.census.gov/programs-surveys/metro-micro/geographies/reference-files/2018/delineation-files/list1_Sep_2018.xls",
+                             geo = "county") {
+  # function to create census data based on metro areas
+  # The OMB Metropolititan delineation can be downloaded from [Census](https://www.census.gov/geographies/reference-files/time-series/demo/metro-micro/delineation-files.html).
+  # return a tibble with metro, fips, population. 
+  # TODO expand to get more census data.
+
+  census_api_key("d26bdb323e1a7649867b33225248dc93a8d3fb51")
+  
+  us_pop <- get_acs(geography = geo, 
+                    variables = c(population = "B01001_001E"), 
+                    # state = "TX",
+                    geometry = TRUE,
+                    year = census_year)
+  
+  
+  GET(metro_url, write_disk(tf <- tempfile(fileext = ".xls")))
+  metro <- read_excel(tf,
+                      col_types = "text", 
+                      skip = 2) %>% 
+    select(-`Metropolitan/Micropolitan Statistical Area`) %>% 
+    janitor::clean_names() %>% 
+    mutate(fips = str_c(`fips_state_code`, `fips_county_code`))
+  
+  metro_fips <- metro %>% 
+    filter(!is.na(csa_title)) %>%
+    select(metro = csa_title, fips)
+  
+  metro_pop <- us_pop %>% 
+    as_tibble() %>% 
+    select(fips = GEOID, population = estimate) %>% 
+    right_join(metro_fips, by = "fips")
+}
