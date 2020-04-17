@@ -117,13 +117,19 @@ ts_us <- ts_confirmed_us %>%
 ```{r}
 ts_death_us_url <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_US.csv"
 
-ts_death_us <- read_csv(ts_confirmed_us_url, 
+ts_death_us <- read_csv(ts_death_us_url, 
                             col_types = cols(.default = "c"))
 
 names(ts_death_us)
 
 ```
 ```{r}
+key_cols <-c(key_cols, "Population")
+ts_death_us %>% 
+  select(-one_of(key_cols)) %>% 
+  head()
+
+
 ts_us <- ts_death_us %>% 
   select(-one_of(key_cols)) %>% 
   pivot_longer(-Combined_Key, names_to = "date", 
@@ -133,11 +139,26 @@ ts_us <- ts_death_us %>%
   janitor::clean_names() %>% 
   left_join(ts_us, by = c("combined_key", "date"))
 
+
+
+
 ts_us %>% 
   left_join(us_keys, by = "combined_key" ) %>% 
   select(combined_key, fips) %>% 
   filter(fips < 100) %>% 
   distinct()
+```
+
+```{r}
+us_keys <- ts_death_us %>% 
+  select(one_of(key_cols)) %>% 
+  distinct() %>% 
+  janitor::clean_names() %>% 
+  mutate(fips = as.integer(fips))
+
+us_keys %>% 
+  select(fips) %>% 
+  n_distinct()
 ```
 
 ```{r}

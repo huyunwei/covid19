@@ -15,12 +15,6 @@ get_jhu_covid_usts <- function(jhu_url = "https://raw.githubusercontent.com/CSSE
   ts_confirmed_us_url <- paste0(jhu_url, jhu_confirmed)
   ts_confirmed_us <- read_csv(ts_confirmed_us_url, 
                               col_types = cols(.default = "c"))
-  us_keys <- ts_confirmed_us %>% 
-    select(UID, iso2, iso3, code3, FIPS, Admin2, Province_State,
-           Country_Region, Lat, Long_, Combined_Key) %>% 
-    distinct() %>% 
-    janitor::clean_names() %>% 
-    mutate(fips = as.integer(fips))
   key_cols <- c("UID", "iso2", "iso3", "code3", "FIPS", "Admin2", "Province_State", "Country_Region", "Lat", "Long_")
   ts_us <- ts_confirmed_us %>% 
     select(-one_of(key_cols)) %>% 
@@ -31,8 +25,15 @@ get_jhu_covid_usts <- function(jhu_url = "https://raw.githubusercontent.com/CSSE
     janitor::clean_names() 
   
   ts_death_us_url <- paste0(jhu_url, jhu_death)
-  ts_death_us <- read_csv(ts_confirmed_us_url, 
+  ts_death_us <- read_csv(ts_death_us_url, 
                           col_types = cols(.default = "c"))
+  key_cols <- c(key_cols, "Population")
+  us_keys <- ts_death_us %>% 
+    select(c(one_of(key_cols), "Combined_Key")) %>% 
+    distinct() %>% 
+    janitor::clean_names() %>% 
+    mutate(fips = as.integer(fips))
+  
   ts_us <- ts_death_us %>% 
     select(-one_of(key_cols)) %>% 
     pivot_longer(-Combined_Key, names_to = "date", 
@@ -41,7 +42,8 @@ get_jhu_covid_usts <- function(jhu_url = "https://raw.githubusercontent.com/CSSE
            deaths = as.integer(deaths)) %>% 
     janitor::clean_names() %>% 
     left_join(ts_us, by = c("combined_key", "date")) %>% 
-    left_join(select(us_keys, combined_key, fips), by = "combined_key")
+    left_join(select(us_keys, combined_key, fips, population, lat, long),
+              by = "combined_key")
 }
 
 
@@ -75,10 +77,11 @@ get_metro_census <- function(census_year = 2018,
   
   metro_fips <- metro %>% 
     filter(!is.na(csa_title)) %>%
-    select(metro = csa_title, fips)
+    select(metro = csa_title, fips) 
   
   metro_pop <- us_pop %>% 
     as_tibble() %>% 
     select(fips = GEOID, population = estimate) %>% 
-    right_join(metro_fips, by = "fips")
+    right_join(metro_fips, by = "fips") %>% 
+    mutate(fips = as.numeric(fips))
 }

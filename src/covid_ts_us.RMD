@@ -18,14 +18,14 @@ source("util.R")
 ```
 
 ```{r}
-metro_census <- get_metro_census()
-metro_pop <- metro_census %>% 
+metro_fips <- get_metro_census()
+metro_pop <- metro_fips %>% 
   group_by(metro) %>% 
-  summarise(population = sum(population)) %>% 
+  summarise(population = sum(as.numeric(population))) %>% 
   arrange(desc(population)) %>% 
   filter(population > 1e6) %>% 
   ungroup()
-save(metro_census, metro_pop, file = "../data/metro.RDA")
+save(metro_fips, metro_pop, file = "../data/metro.RDA")
 ```
 
 ```{r}
@@ -57,5 +57,22 @@ plotly::ggplotly(p)
 
 ggiraph::girafe(ggobj = p + geom_point_interactive(aes(tooltip = metro)))
   
+```
+```{r}
+baselines <- tibble(
+  days = 1:100,
+  double_every_2_days = (1 + log(2)/2)^days,
+  double_every_3_days = (1 + log(2)/3)^days,
+  double_every_4_days = (1 + log(2)/4)^days,
+  double_every_5_days = (1 + log(2)/5)^days
+) %>% 
+  pivot_longer(-days, names_to = "rate", values_to = "count")
+
+library(directlabels)
+ggplot(data = baselines, aes(x = days, y = 10 * count, group = rate)) + 
+  geom_line(alpha = 0.1) + scale_y_log10() + 
+  geom_dl(data = baselines,  
+                        aes(x = days, y = 10 * count, label = rate),
+                        method = list(dl.trans(x = x - 3), "last.points", cex = 0.8)) 
 ```
 
