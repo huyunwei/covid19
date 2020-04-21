@@ -1,0 +1,10 @@
+name: covid19
+title:
+username:
+account: riskpredictions
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 2147646
+bundleId: 3036359
+url: https://riskpredictions.shinyapps.io/covid19/
+when: 1587343079.48425

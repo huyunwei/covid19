@@ -5,6 +5,6 @@ account: riskpredictions
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 2138251
-bundleId: 3029769
+bundleId: 3036395
 url: https://riskpredictions.shinyapps.io/covid19dash/
-when: 1587175754.07104
+when: 1587343844.51899

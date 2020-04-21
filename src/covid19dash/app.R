@@ -28,7 +28,7 @@ ui <- dashboardPage(
     dashboardHeader(title = "COVID-19 Dashboard"),
     dashboardSidebar(        
         sidebarMenu(
-            menuItem("Dashboard", 
+            menuItem("Metropolitans Dashboard", 
                      tabName = "dashboard", 
                      icon = icon("dashboard")
                      ),
@@ -142,14 +142,14 @@ server <- function(input, output, session) {
                                  alpha = 0.1) +
                       geom_line(data = filter(metro_ts(), metro %in% input$show_metro),
                                 aes(x = days_from_nconfirmed, 
-                                    y = daily_new_case_3, 
+                                    y = daily_new_case_ma, 
                                     color = metro)) + 
                       geom_point(data = filter(metro_ts(), metro %in% input$show_metro),
                                 aes(x = days_from_nconfirmed, 
                                     y = daily_new_case, 
                                     color = metro)) + 
                       scale_y_log10() +             
-                      labs(title = "Daily New Cases", 
+                      labs(title = "Daily New Cases (7-day Moving Average", 
                            x = "Days from 10th confirmed case")
         ) %>% 
             plotly::layout(legend = list(orientation = "h", x = 0, y = -0.3))
@@ -182,14 +182,14 @@ server <- function(input, output, session) {
                                  alpha = 0.1) +
                       geom_line(data = filter(metro_ts(), metro %in% input$show_metro),
                                 aes(x = days_from_ndeath, 
-                                    y = daily_new_death_3, 
+                                    y = daily_new_death_ma, 
                                     color = metro)) + 
                       geom_point(data = filter(metro_ts(), metro %in% input$show_metro),
                                 aes(x = days_from_ndeath, 
                                     y = daily_new_death, 
                                     color = metro)) + 
                       scale_y_log10() +             
-                      labs(title = "Daily New Deaths (3-day avg)", 
+                      labs(title = "Daily New Deaths (7-day Moving Average)", 
                            x = "Days from 3rd death")
         ) %>% 
             plotly::layout(legend = list(orientation = "h", x = 0, y = -0.3))

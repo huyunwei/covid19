@@ -88,7 +88,7 @@ get_metro_census <- function(census_year = 2018,
 
 
 
-get_metro_ts <- function(metro_fips){
+get_metro_ts <- function(metro_fips, ma_len = 7){
   ts_us <- get_jhu_covid_usts()
   
   metro_pop_jhu <- ts_us %>% 
@@ -115,9 +115,9 @@ get_metro_ts <- function(metro_fips){
     mutate(days_from_nconfirmed = row_number(),
            days_from_ndeath = cumsum(deaths > 2),
            daily_new_case = confirmed - lag(confirmed),
-           daily_new_case_3 = (confirmed - lag(confirmed,3))/3,
+           daily_new_case_ma = (confirmed - lag(confirmed,ma_len))/ma_len,
            daily_new_death = deaths - lag(deaths),
-           daily_new_death_3 = (deaths - lag(deaths,3))/3) %>% 
+           daily_new_death_ma = (deaths - lag(deaths,ma_len))/ma_len) %>% 
     ungroup() %>% 
     left_join(metro_pop_jhu, by = "metro")
 }

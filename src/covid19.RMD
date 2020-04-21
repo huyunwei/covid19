@@ -30,7 +30,7 @@ states_history = fromJSON(states_url) %>%
   mutate(pos_perc = positiveIncrease / totalTestResultsIncrease)
 
 states_history %>% 
-  filter(state == "TX") %>% 
+  filter(state == "SC") %>% 
   select(date, positiveIncrease, pos_perc, deathIncrease, totalTestResultsIncrease) %>% 
   arrange(desc(date) )
 ```
