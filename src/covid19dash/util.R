@@ -4,7 +4,10 @@ suppressPackageStartupMessages({
   library(httr)
   library(tidycensus)
   library(lubridate)
+  library(conflicted)
   })
+conflict_prefer("filter", "dplyr")
+conflict_prefer("lag", "dplyr")
 
 get_jhu_covid_usts <- function(jhu_url = "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/",
                                jhu_confirmed = "time_series_covid19_confirmed_US.csv",
@@ -120,4 +123,35 @@ get_metro_ts <- function(metro_fips, ma_len = 7){
            daily_new_death_ma = (deaths - lag(deaths,ma_len))/ma_len) %>% 
     ungroup() %>% 
     left_join(metro_pop_jhu, by = "metro")
+}
+
+
+
+
+#' RKI R_e(t) estimator with generation time GT (default GT=4)
+#' @param ts - Vector of integer values containing the time series of incident cases
+#' @param GT - PMF of the generation time is a fixed point mass at the value GT.
+
+est_rt_rki <- function(ts, GT=4L) {
+  # Sanity check
+  if (!is.integer(GT) | !(GT>0)) stop("GT has to be postive integer.")
+  # Estimate
+  sapply( (1+GT):(length(ts)-GT), function(t) {
+    sum(ts[t+(0:(GT-1))]) / sum(ts[t-(1:GT)]) 
+  })
+}
+
+get_metro_rt_rki <- function(ts, show_metro){
+  metro_rt_rki <- ts %>% 
+    filter(metro %in% show_metro) %>% 
+    filter(confirmed > 0) %>% 
+    # group_by(metro) %>% 
+    split(.$metro) %>% 
+    map(~ est_rt_rki(.x$daily_new_case, GT = 4L)) %>% 
+    enframe() %>% 
+    unnest() %>% 
+    drop_na() %>% 
+    rename(metro = name, rt = value ) %>% 
+    group_by(metro) %>% 
+    mutate(days = row_number())
 }

@@ -33,6 +33,9 @@ ui <- dashboardPage(
                      icon = icon("dashboard")
                      ),
             menuItem("Maps", tabName = "maps", icon = icon("th")),
+            menuItem("Reproduction Numbers", 
+                     tabName = "reproduction", 
+                     icon = icon("th")),
             actionButton(inputId = "reload", label = "Reload data"),
             sliderInput("top_n",
                         "Number of Metros to plot:",
@@ -67,6 +70,12 @@ ui <- dashboardPage(
                         box(plotlyOutput("mapPlot"), width = 800, height = 600),
                         box(DT::dataTableOutput("table"))
                     )
+            ),
+            # Third tab content
+            tabItem(tabName = "reproduction",
+                    fluidRow(
+                      box(plotlyOutput("rePlot"), width = 800, height = 600),
+                    )
             )
         )
     )
@@ -98,6 +107,10 @@ server <- function(input, output, session) {
         metro_ts() %>% 
             filter(metro %in% metro_total()$metro[1:input$top_n])
     })
+    metro_rt_rki <- reactive({
+      get_metro_rt_rki(metro_ts() , input$show_metro)
+      })
+    
     observeEvent(input$top_n, {
         choices <- metro_total()$metro[1:input$top_n]
         updateCheckboxGroupInput(session, "show_metro", 
@@ -204,7 +217,18 @@ server <- function(input, output, session) {
     })
     output$table <- output$table1 <- DT::renderDataTable(DT::datatable({
         data <- head(select(metro_total(), -lat, -long),
-                     max(input$top_n,30))}))
+                     max(input$top_n,30))
+        })
+    )
+        
+    output$rePlot <- renderPlotly({
+      metro_rt_rki() %>% 
+        ggplot(aes(x=days, y =rt, color = metro)) + 
+        geom_line() + geom_hline(yintercept = 1) +
+        scale_y_log10()
+    })
+        
+
 }
 
 shinyApp(ui, server)
