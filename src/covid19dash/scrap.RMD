@@ -1,0 +1,172 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+## Get Time Series
+
+```{r}
+source("util.R")
+# metro_fips <- get_metro_census()
+# save(metro_fips, file = "./data/metro.RDA")
+load("./data/metro.RDA")
+# ts_us <- get_metro_ts(metro_fips)
+# save(ts_us, file = "./data/ts.RDA") 
+load("./data/ts.RDA")
+```
+## Calc the $$R_e$$
+
+### RKI method
+
+```{r}
+metro_pop <- get_metro_census() %>% 
+  group_by(metro) %>% 
+  summarise(population = sum(population)) %>% 
+  arrange(desc(population)) %>% 
+  ungroup()
+
+  last_report <- ts_us %>% 
+    group_by(metro) %>% 
+    summarise(last_updated = max(date)) %>% 
+    ungroup()
+
+metro_rt_rki <- ts_us %>% 
+  filter(metro %in% metro_pop$metro[1:4]) %>% 
+  filter(confirmed > 0) %>% 
+  # group_by(metro) %>% 
+  split(.$metro) %>% 
+  map(~ est_rt_rki(.x$daily_new_case_ma, GT = 4L)) %>% 
+  enframe() %>% 
+  unnest() %>% 
+  drop_na() %>% 
+  rename(metro = name, rt = value ) %>% 
+  left_join(last_report, by = "metro") %>% 
+  group_by(metro) %>% 
+  mutate(days = last_updated - days(n() - row_number())) %>% 
+  ungroup()
+
+
+metro_rt_rki %>% 
+  ggplot(aes(x = days, y = rt, color = metro)) +
+  geom_line() + geom_hline(yintercept = 1) + 
+  scale_y_log10()
+```
+```{r}
+remotes::install_github("kjhealy/covdata")
+library(covdata)
+## Libraries for the graphs
+# library(ggrepel)
+# library(paletteer)
+# library(prismatic)
+
+## Convenince "Not in" operator
+"%nin%" <- function(x, y) {
+  return( !(x %in% y) )
+}
+
+
+## Countries to highlight
+focus_cn <- c("CHN", "DEU", "GBR", "USA", "IRN", "JPN",
+              "KOR", "ITA", "FRA", "ESP", "CHE", "TUR")
+
+## Colors
+n_lvl <- covnat %>% 
+  select()
+cgroup_cols <- c(clr_darken(
+  paletteer_d("ggsci::category20_d3"), 0.2)[1:length(focus_cn)], "gray70")
+alpha_lvl <- c(rep(1, length(focus_cn)), rep(0.1))
+covnat %>%
+  filter(cu_cases > 99) %>%
+  mutate(days_elapsed = date - min(date),
+        end_label = if_else(date == max(date), cname, ""),
+        end_label = recode(end_label, `United States` = "USA",
+                            `Iran, Islamic Republic of` = "Iran",
+                            `Korea, Republic of` = "South Korea",
+                            `United Kingdom` = "UK"),
+         cname = recode(cname, `United States` = "USA",
+                        `Iran, Islamic Republic of` = "Iran",
+                        `Korea, Republic of` = "South Korea",
+                        `United Kingdom` = "UK"),
+         end_label = case_when(iso3 %in% focus_cn ~ end_label,
+                               TRUE ~ NA_character_),
+         cgroup = case_when(iso3 %in% focus_cn ~ iso3,
+                            TRUE ~ "zzother"),
+        alpha_lvl = if_else(iso3 %in% focus_cn, 1, 0.01)) %>%
+  ggplot(mapping = aes(x = days_elapsed, y = cu_cases,
+                       color = cgroup, label = end_label,
+                       group = cname, alpha = alpha_lvl)) +
+  geom_line(size = 0.5) +
+  geom_text_repel(nudge_x = 0.75,
+                  segment.color = NA) +
+  guides(color = FALSE) +
+  # scale_color_manual(values = cgroup_cols) +
+  scale_y_continuous(labels = scales::comma_format(accuracy = 1),
+                     breaks = 2^seq(4, 19, 1),
+                     trans = "log2") +
+  labs(x = "Days Since 100th Confirmed Case",
+       y = "Cumulative Number of Reported Cases (log2 scale)",
+       title = "Cumulative Reported Cases of COVID-19, Selected Countries",
+       subtitle = paste("ECDC data as of", format(max(covnat$date), "%A, %B %e, %Y")),
+       caption = "Data: https://www.ecdc.europa.eu/") +
+  theme(legend.position = "none") 
+
+
+```
+
+```{r}
+
+
+cities <- c("Columbus", "Los Angeles", "Cleveland" ,"Atlanta" ,"Washington DC",
+            "Baltimore", "Boston", "Hartford","Indianapolis", "Chicago",
+            "Philadelphia", "San Francisco - Bay Area", "Dallas",
+            "New York City", "Denver", "Miami", "Seattle", "Houston",
+            "St. Louis", "Detroit", "New Orleans")
+
+apple_mobility %>% 
+  filter(geo_type == "city") %>% 
+  filter(region %in% cities) %>% 
+  filter(month(date) %in% c(3, 4)) %>% 
+  rename(mode = transportation_type) %>%
+  ggplot(aes(x = date, y = index, group = mode, color = mode)) +
+  geom_line(size = 0.5) +
+  # scale_color_manual(values = my.colors("bly")) +
+  facet_wrap(~ region, ncol = 3) +
+  labs(x = "Date", y = "Trend",
+       color = "Mode",
+       title = "All Modes, All Cities, Base Data",
+       caption = "Data: Apple") + 
+  scale_y_log10() +
+  theme(legend.position = "top")
+
+```
+```{r}
+all_cities <- apple_mobility %>% 
+  filter(geo_type == "city") %>% 
+  select(region) %>% 
+  distinct()
+
+```
+
+```{r}
+vec_brks <- c(-50, 0, 50)
+vec_labs <- vec_brks + 100
+
+apple_mobility %>%
+  filter(geo_type == "city", transportation_type == "driving") %>%
+  filter(region == "Houston") %>% 
+  mutate(over_under = index < 100,
+         index = index - 100) %>%
+  ggplot(mapping = aes(x = date, y = index,
+                       group = region, color = over_under)) +
+  geom_hline(yintercept = 0, color = "gray40") +
+  geom_col() +
+  scale_y_continuous(breaks = vec_brks, labels = vec_labs) +
+  scale_color_manual(values = c("firebrick", "steelblue")) +
+  facet_wrap(~ region, ncol = 8) +
+  guides(color = FALSE) +
+  labs(x = "Date", y = "Relative Mobility", title = "Relative Trends in Apple Maps Usage for Driving, Selected Cities",
+                              subtitle = "Data are indexed to 100 for each city's usage on January 13th 2020",
+       caption = "Data: Apple. Graph: @kjhealy") +
+  theme_minimal()
+```
+

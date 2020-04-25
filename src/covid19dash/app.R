@@ -5,6 +5,8 @@ library(lubridate)
 library(conflicted)
 library(plotly)
 library(ggmap)
+# remotes::install_github("kjhealy/covdata")
+library(covdata)
 conflict_prefer("filter", "dplyr")
 conflict_prefer("lead", "dplyr")
 conflict_prefer("lag", "dplyr")
@@ -33,6 +35,7 @@ ui <- dashboardPage(
                      icon = icon("dashboard")
                      ),
             menuItem("Maps", tabName = "maps", icon = icon("th")),
+            menuItem("Mobility", tabName = "mobil", icon = icon("th")),
             menuItem("Reproduction Numbers", 
                      tabName = "reproduction", 
                      icon = icon("th")),
@@ -56,10 +59,10 @@ ui <- dashboardPage(
             # First tab content
             tabItem(tabName = "dashboard",
                     fluidRow(
-                        box(plotlyOutput("casePlot", width = 800, height = 600)),
-                        box(plotlyOutput("deathPlot", width = 800, height = 600)),
-                        box(plotlyOutput("newCasePlot", width = 800, height = 600)),
-                        box(plotlyOutput("newDeathPlot", width = 800, height = 600)),
+                        box(plotlyOutput("casePlot"), width = 6),
+                        box(plotlyOutput("deathPlot"), width = 6),
+                        box(plotlyOutput("newCasePlot"), width = 6),
+                        box(plotlyOutput("newDeathPlot"), width = 6),
                         box(DT::dataTableOutput("table1"))
                     )
             ),
@@ -67,19 +70,29 @@ ui <- dashboardPage(
             # Second tab content
             tabItem(tabName = "maps",
                     fluidRow(
-                        box(plotlyOutput("mapPlot"), width = 800, height = 600),
+                        box(plotOutput("mapPlot"), width = 12),
                         box(DT::dataTableOutput("table"))
                     )
             ),
             # Third tab content
+            tabItem(tabName = "mobil",
+                    fluidRow(
+                      box(plotlyOutput("mobilPlot"), width = 12, height = 72),
+                      # box(DT::dataTableOutput("table"))
+                    )
+            ),
+            # Another tab content
             tabItem(tabName = "reproduction",
                     fluidRow(
-                      box(plotlyOutput("rePlot"), width = 800, height = 600),
+                      box(plotlyOutput("rePlot"), width = 12),
+                      box(DT::dataTableOutput("reTable"))
                     )
             )
         )
-    )
+    ),
 )
+
+
 
 server <- function(input, output, session) {
     metro_ts <- reactive({
@@ -108,7 +121,7 @@ server <- function(input, output, session) {
             filter(metro %in% metro_total()$metro[1:input$top_n])
     })
     metro_rt_rki <- reactive({
-      get_metro_rt_rki(metro_ts() , input$show_metro)
+      get_metro_rt_rki(metro_ts() , metro_total()$metro[1:input$top_n])
       })
     
     observeEvent(input$top_n, {
@@ -207,11 +220,12 @@ server <- function(input, output, session) {
         ) %>% 
             plotly::layout(legend = list(orientation = "h", x = 0, y = -0.3))
     })
-    output$mapPlot <- renderPlotly({
+    output$mapPlot <- renderPlot({
 
         us <- c(left = -125, bottom = 20, right = -60, top = 49)
         ggmap(get_stamenmap(us, zoom = 5, maptype = "toner-lite")) +
-            geom_point( aes(x = long, y = lat, size = log(confirmed)), color = "red",
+            geom_point( aes(x = long, y = lat, size = log(confirmed)), 
+                        color = "red",
                         data = head(metro_total(), input$top_n))
             
     })
@@ -221,14 +235,52 @@ server <- function(input, output, session) {
         })
     )
         
-    output$rePlot <- renderPlotly({
+    output$reTable <- DT::renderDataTable(DT::datatable({
       metro_rt_rki() %>% 
-        ggplot(aes(x=days, y =rt, color = metro)) + 
-        geom_line() + geom_hline(yintercept = 1) +
-        scale_y_log10()
+        group_by(metro) %>% 
+        summarise(latest_Re = tail(rt, 1))
     })
-        
+    )
 
+    output$rePlot <- renderPlotly({
+      ggplotly(
+      ggplot() +  
+        geom_line(data = metro_rt_rki(), 
+                  aes(x=days, y =rt, group = metro), 
+                  alpha = 0.1) + 
+        geom_hline(yintercept = 1) +
+        geom_line(data = filter(metro_rt_rki(), metro %in% input$show_metro),
+                  aes(x=days, y =rt, color = metro)) +
+        scale_y_log10() +
+        theme(legend.position = "top")
+      ) %>% 
+        plotly::layout(legend = list(orientation = "h", x = 0, y = -0.1))
+    })        
+    output$mobilPlot <- renderPlotly({
+      cities <- c("Columbus", "Los Angeles", "Cleveland" ,"Atlanta" ,"Washington DC",
+                  "Baltimore", "Boston", "Hartford","Indianapolis", "Chicago",
+                  "Philadelphia", "San Francisco - Bay Area", "Dallas",
+                  "New York City", "Denver", "Miami", "Seattle", "Houston",
+                  "St. Louis", "Detroit", "New Orleans")
+      ggplotly(
+       apple_mobility %>% 
+        filter(geo_type == "city") %>% 
+        filter(region %in% cities) %>% 
+        filter(month(date) %in% c(3, 4)) %>% 
+        rename(mode = transportation_type) %>%
+        ggplot(aes(x = date, y = index, group = mode, color = mode)) +
+        geom_line(size = 0.5) +
+        # scale_color_manual(values = my.colors("bly")) +
+        facet_wrap(~ region, ncol = 1) +
+        labs(x = "Date", y = "Trend",
+             color = "Mode",
+             title = "All Modes, All Cities, Base Data",
+             caption = "Data: Apple") + 
+        scale_y_log10() +
+        theme(legend.position = "top") ,
+       height = 1600, width = 800
+      )
+    })   
 }
 
 shinyApp(ui, server)
