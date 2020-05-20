@@ -6,7 +6,7 @@ library(conflicted)
 library(plotly)
 library(ggmap)
 # remotes::install_github("kjhealy/covdata")
-library(covdata)
+# library(covdata)
 conflict_prefer("filter", "dplyr")
 conflict_prefer("lead", "dplyr")
 conflict_prefer("lag", "dplyr")
@@ -35,6 +35,7 @@ ui <- dashboardPage(
                      icon = icon("dashboard")
                      ),
             menuItem("Maps", tabName = "maps", icon = icon("th")),
+            menuItem("Testing", tabName = "testing", icon = icon("th")),
             menuItem("Mobility", tabName = "mobil", icon = icon("th")),
             menuItem("Reproduction Numbers", 
                      tabName = "reproduction", 
@@ -81,6 +82,13 @@ ui <- dashboardPage(
                       # box(DT::dataTableOutput("table"))
                     )
             ),
+            # Another tab
+            tabItem(tabName = "testing",
+                    fluidRow(
+                      box(plotOutput("testingPlot"), width = 6),
+                      box(DT::dataTableOutput("testTable"))
+                    )
+            ),
             # Another tab content
             tabItem(tabName = "reproduction",
                     fluidRow(
@@ -95,12 +103,21 @@ ui <- dashboardPage(
 
 
 server <- function(input, output, session) {
-    metro_ts <- reactive({
+  apple_mobility <- reactive({
+    get_appleMobility()
+  })
+  states_history <- reactive({
+    get_covidtracking_states()
+  })  
+  metro_ts <- reactive({
         get_metro_ts(metro_fips)
     })
     observeEvent(input$reload, {
-        print(paste("Updating ", format(Sys.time(), "%a %b %d %X %Y")))
-        metro_ts <- reactive({
+        # print(paste("Updating ", format(Sys.time(), "%a %b %d %X %Y")))
+      apple_mobility <- reactive({
+        get_appleMobility()
+      })
+      metro_ts <- reactive({
             get_metro_ts(metro_fips)
             })
     })
@@ -141,12 +158,17 @@ server <- function(input, output, session) {
                               aes(x = days_from_nconfirmed, 
                                   y = confirmed)) + 
             geom_line(aes(group = metro), alpha = 0.1)  + 
-            geom_point(alpha = 0.1)
+            geom_point(alpha = 0.1, size = 0.2)
         ggplotly( p_backgroud +
             geom_line(data = filter(metro_ts(), metro %in% input$show_metro),
                       aes(x = days_from_nconfirmed, 
                           y = confirmed, 
-                          color = metro)) + 
+                          color = metro)) +
+            geom_point(data = filter(metro_ts(), metro %in% input$show_metro),
+                        aes(x = days_from_nconfirmed, 
+                            y = confirmed, 
+                            color = metro), 
+                       size = 0.5 ) + 
             scale_y_log10() +             
             geom_line(data = baselines, 
                       aes(x = days, y = 10 * count, group = rate),
@@ -161,11 +183,11 @@ server <- function(input, output, session) {
         ggplotly( ggplot() + 
                       geom_line(data = metro_background(),
                                 aes(x = days_from_nconfirmed, 
-                                    y = daily_new_case, 
-                                    group = metro), alpha = 0.1)  + 
+                                    y = daily_new_case_ma, 
+                                    group = metro), alpha = 0.05)  + 
                       geom_point(data = metro_background(), 
                                  aes(x = days_from_nconfirmed, y = daily_new_case),
-                                 alpha = 0.1) +
+                                 alpha = 0.05, size = 0.2) +
                       geom_line(data = filter(metro_ts(), metro %in% input$show_metro),
                                 aes(x = days_from_nconfirmed, 
                                     y = daily_new_case_ma, 
@@ -173,7 +195,8 @@ server <- function(input, output, session) {
                       geom_point(data = filter(metro_ts(), metro %in% input$show_metro),
                                 aes(x = days_from_nconfirmed, 
                                     y = daily_new_case, 
-                                    color = metro)) + 
+                                    color = metro), 
+                                size = 0.5) + 
                       scale_y_log10() +             
                       labs(title = "Daily New Cases (7-day Moving Average", 
                            x = "Days from 10th confirmed case")
@@ -186,11 +209,17 @@ server <- function(input, output, session) {
             ggplot(aes(x = days_from_ndeath, 
                        y = deaths, 
                        group = metro)) + 
-            geom_line(alpha = 0.1)  + geom_point(alpha = 0.1) +
-            geom_line(data = filter(metro_ts(), metro %in% input$show_metro),
+          geom_line(alpha = 0.05)  + 
+          geom_point(alpha = 0.05, size = 0.2) +
+          geom_line(data = filter(metro_ts(), metro %in% input$show_metro),
                       aes(x = days_from_ndeath, 
                           y = deaths, 
                           color = metro)) + 
+          geom_point(data = filter(metro_ts(), metro %in% input$show_metro),
+                    aes(x = days_from_ndeath, 
+                        y = deaths, 
+                        color = metro), 
+                    size = 0.5) + 
             theme(legend.position = "bottom") +
             scale_y_log10() + 
             labs(title = "Deaths", x = "Days from 3rd death")
@@ -201,11 +230,12 @@ server <- function(input, output, session) {
         ggplotly( ggplot() + 
                       geom_line(data = metro_background(),
                                 aes(x = days_from_ndeath, 
-                                    y = daily_new_death, 
-                                    group = metro), alpha = 0.1)  + 
+                                    y = daily_new_death_ma, 
+                                    group = metro), 
+                                alpha = 0.05)  + 
                       geom_point(data = metro_background(), 
                                  aes(x = days_from_ndeath, y = daily_new_death),
-                                 alpha = 0.1) +
+                                 alpha = 0.05, size = 0.2) +
                       geom_line(data = filter(metro_ts(), metro %in% input$show_metro),
                                 aes(x = days_from_ndeath, 
                                     y = daily_new_death_ma, 
@@ -234,7 +264,18 @@ server <- function(input, output, session) {
                      max(input$top_n,30))
         })
     )
-        
+    output$testTable <- DT::renderDataTable(DT::datatable({
+    data <- states_history() %>% 
+        filter(state %in% c("TX", "NY", "NJ", "CT", "LA", "FL", "CO",
+                            "IL","WA", "GA", "MS", "AZ"),
+               date > today() - days(15)) %>% 
+        mutate(pos_perc = if_else(((pos_perc > 0.99 )|(pos_perc <0.01)), 
+                                  NA_real_, pos_perc)) %>% 
+        select(date, state, positive, hospitalizedCurrently,
+              positiveIncrease, totalTestResultsIncrease,
+              pos_perc)
+    })
+    )        
     output$reTable <- DT::renderDataTable(DT::datatable({
       metro_rt_rki() %>% 
         group_by(metro) %>% 
@@ -263,24 +304,51 @@ server <- function(input, output, session) {
                   "New York City", "Denver", "Miami", "Seattle", "Houston",
                   "St. Louis", "Detroit", "New Orleans")
       ggplotly(
-       apple_mobility %>% 
-        filter(geo_type == "city") %>% 
-        filter(region %in% cities) %>% 
-        filter(month(date) %in% c(3, 4)) %>% 
-        rename(mode = transportation_type) %>%
-        ggplot(aes(x = date, y = index, group = mode, color = mode)) +
-        geom_line(size = 0.5) +
-        # scale_color_manual(values = my.colors("bly")) +
-        facet_wrap(~ region, ncol = 1) +
-        labs(x = "Date", y = "Trend",
-             color = "Mode",
-             title = "All Modes, All Cities, Base Data",
-             caption = "Data: Apple") + 
-        scale_y_log10() +
-        theme(legend.position = "top") ,
+       apple_mobility() %>% 
+         filter(geo_type == "city") %>% 
+         filter(region %in% cities) %>% 
+         filter(month(date) %in% c(3, 4, 5)) %>% 
+         rename(mode = transportation_type) %>%
+         ggplot(aes(x = date, y = index, group = mode, color = mode)) +
+         geom_point(size = 0.5, alpha = 0.5) +
+         # scale_color_manual(values = my.colors("bly")) +
+         facet_wrap(~ region, ncol = 3) +
+         labs(x = "Date", y = "Trend",
+              color = "Mode",
+              title = "All Modes, All Cities, Base Data",
+              caption = "Data: Apple") + 
+         # scale_y_log10() +
+         theme(legend.position = "top") + 
+         ylim(0, 150) +
+         geom_smooth(se = FALSE, size = 0.3) ,
        height = 1600, width = 800
-      )
-    })   
+      ) %>% 
+        plotly::layout(legend = list(orientation = "h", x = 0.5, y = 100))
+    }) 
+    output$testingPlot <- renderPlot({
+      focus_states <- c("TX", "NY", "NJ", "CT", "LA", "FL", "CO",
+                        "IL","WA", "GA", "MS", "AZ")
+      states_history() %>% 
+          filter(state %in% focus_states,
+                 date > ymd(20200305)) %>% 
+          mutate(pos_perc = if_else(((pos_perc > 0.99 )|(pos_perc <0.01)), NA_real_, pos_perc)) %>%   ggplot(aes(x = date)) +
+          geom_point(aes(y = pos_perc), alpha = 0.5, size = 0.5) + 
+          geom_smooth(aes(y = pos_perc), se = T) +
+          geom_bar(aes(y = totalTestResultsIncrease / 100000), 
+                   stat="identity", size=.1, 
+                   fill="black", color="black", alpha=.4) +
+          scale_y_continuous(
+            limits = c(0,0.6),
+            sec.axis = sec_axis(trans = ~ . * 100000, 
+                                name="Tests Reported" ) ) + 
+          ylab("Positive Rate") +
+          theme(axis.text.x = element_text(angle = 90, hjust = 1),
+                axis.text.y = element_text(color = "blue"),
+                axis.text.y.right = element_text(color = "Blue"),
+                legend.position="bottom") +
+          labs(title = "Daily COVID-19 Testing by State") + 
+          facet_wrap(~state, ncol = 3)
+    })
 }
 
 shinyApp(ui, server)

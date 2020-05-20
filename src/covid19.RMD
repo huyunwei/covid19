@@ -30,7 +30,7 @@ states_history = fromJSON(states_url) %>%
   mutate(pos_perc = positiveIncrease / totalTestResultsIncrease)
 
 states_history %>% 
-  filter(state == "SC") %>% 
+  filter(state == "TX") %>% 
   select(date, positiveIncrease, pos_perc, deathIncrease, totalTestResultsIncrease) %>% 
   arrange(desc(date) )
 ```
@@ -39,6 +39,31 @@ states_history %>%
 states_history %>% 
   select(date, state, positiveIncrease, pos_perc, deathIncrease) %>% 
   arrange(desc(date), desc(pos_perc))
+```
+```{r}
+focus_states <- c("TX", "NY", "NJ", "CT", "LA", "FL", "CO","IL","WA")
+focus_states <- c("TX", "NY", "NJ", "CO")
+states_history %>% 
+  filter(state %in% focus_states,
+         date > ymd(20200305)) %>% 
+  mutate(pos_perc = if_else(((pos_perc > 0.99 )|(pos_perc <0.01)), NA_real_, pos_perc)) %>%   ggplot(aes(x = date)) +
+  geom_point(aes(y = pos_perc), alpha = 0.5, size = 0.5) + 
+  geom_smooth(aes(y = pos_perc), se = T) +
+  geom_bar(aes(y = totalTestResultsIncrease / 100000), 
+           stat="identity", size=.1, 
+           fill="black", color="black", alpha=.4) +
+  scale_y_continuous(
+    limits = c(0,0.6),
+    sec.axis = sec_axis(trans = ~ . * 100000, 
+                        name="Tests Reported" ) ) + 
+  #ylim(0, 0.6) 
+  ylab("Positive Rate") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        axis.text.y = element_text(color = "blue"),
+        axis.text.y.right = element_text(color = "Blue"),
+        legend.position="bottom") +
+  labs(title = "Daily COVID-19 Testing by State") + 
+  facet_wrap(~state, ncol = 2)
 ```
 
 Incidence data collated by John Hopkins University
@@ -112,6 +137,10 @@ ts_us <- ts_confirmed_us %>%
          confirmed = as.integer(confirmed)) %>% 
   janitor::clean_names() 
 # %>% left_join(select(us_keys, fips, combined_key), by = "combined_key")
+
+ts_us %>% 
+  filter(date == ymd(20200422))
+
 ```
 
 ```{r}
@@ -162,8 +191,12 @@ us_keys %>%
 ```
 
 ```{r}
-ts_us %>% 
-  left_join(us_keys, by = "combined_key") %>% 
+ts_us <- ts_us %>% 
+  left_join(us_keys, by = "combined_key") %>%
+  left_join(metro_fips, by = "fips") 
+  
+  
+  
   filter(fips == 41620) %>% 
   filter(confirmed > 0) %>% 
   ggplot(aes(x = date, y = confirmed)) + geom_point() + geom_line() + scale_y_log10()
@@ -266,7 +299,7 @@ us_keys <- us_pop %>%
 ### Get metro county 
 The OMB Metropolititan delineation can be downloaded from [Census](https://www.census.gov/geographies/reference-files/time-series/demo/metro-micro/delineation-files.html).
 
-The CSV file used is from the [Core based statistical areas (CBSAs), metropolitan divisions, and combined statistical areas (CSAs)](https://www2.census.gov/programs-surveys/metro-micro/geographies/reference-files/2018/delineation-files/list1_Sep_2018.xls)
+Link to the [excel file](https://www2.census.gov/programs-surveys/metro-micro/geographies/reference-files/2020/delineation-files/list1_2020.xls) updated in 2020.
 
 
 ```{r}
@@ -329,7 +362,23 @@ us_counties_times %>%
   mutate(caseInc = cases - lead(cases), 
          deathInc = deaths - lead(deaths))  
 ```
+## Get Apple Mobility Data
 
+[Tutorial](https://towardsdatascience.com/empowering-apple-mobility-trends-reports-with-bigquery-and-data-studio-1b188ab1c612) is available for download latest Apple Mobility data with BigQuery. 
+
+We get the following code from their [GitHUB](https://github.com/fhoffa/code_snippets/blob/master/covid-19-queries/apple_mobility/download.sh).
+
+```
+x=$(curl -s https://covid19-static.cdn-apple.com/covid19-mobility-data/current/v2/index.json)
+
+url=$( echo https://covid19-static.cdn-apple.com`jq -n "$x" |jq -r '.basePath'``jq -n "$x"|jq -r '.regions."en-us".csvPath'`)
+curl -s $url -o /tmp/latestAppleCovidData.csv
+bq load --autodetect --replace fh-bigquery:temp.latestAppleCovidData /tmp/latestAppleCovidData.csv
+```
+```{r}
+dl <- "bash dl_apl.sh"
+system(dl )
+```
 
 ## Get data from Datahub
 

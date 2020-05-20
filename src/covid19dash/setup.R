@@ -1,4 +1,6 @@
 source("util.R")
+# remotes::install_github("kjhealy/covdata")
+# library(covdata)
 # metro_fips <- get_metro_census()
 # save(metro_fips, file = "./data/metro.RDA")
 load("./data/metro.RDA")

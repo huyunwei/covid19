@@ -1,13 +1,32 @@
 suppressPackageStartupMessages({
+  library(jsonlite)
   library(tidyverse)
   library(readxl)
   library(httr)
   library(tidycensus)
   library(lubridate)
   library(conflicted)
+  library(chromote)
   })
 conflict_prefer("filter", "dplyr")
 conflict_prefer("lag", "dplyr")
+
+get_appleMobility <- function(){
+  b <- ChromoteSession$new()
+  b$Page$navigate("https://www.apple.com/covid19/mobility")
+  Sys.sleep(5)
+  x <- b$DOM$getDocument()
+  x <- b$DOM$querySelector(x$root$nodeId, ".download-button-container")
+  x <- b$DOM$getOuterHTML(x$nodeId)$outerHTML
+  url_pattern <- "http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+"
+  url <- str_extract(string = x, pattern = url_pattern)
+  apple_mobility <- read_csv(file = url, col_types = cols(.default = "c")) %>% 
+    pivot_longer(-c("geo_type", "region", "transportation_type",
+                    "alternative_name", "sub-region","country" ), 
+                 names_to = "date", values_to = "index") %>% 
+    mutate(date = lubridate::ymd(date),
+           index = as.numeric(index))
+}
 
 get_jhu_covid_usts <- function(jhu_url = "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/",
                                jhu_confirmed = "time_series_covid19_confirmed_US.csv",
@@ -54,7 +73,7 @@ get_jhu_covid_usts <- function(jhu_url = "https://raw.githubusercontent.com/CSSE
  
 
 get_metro_census <- function(census_year = 2018,
-                             metro_url = "https://www2.census.gov/programs-surveys/metro-micro/geographies/reference-files/2018/delineation-files/list1_Sep_2018.xls",
+                             metro_url = "https://www2.census.gov/programs-surveys/metro-micro/geographies/reference-files/2020/delineation-files/list1_2020.xls",
                              geo = "county") {
   # function to create census data based on metro areas
   # The OMB Metropolititan delineation can be downloaded from [Census](https://www.census.gov/geographies/reference-files/time-series/demo/metro-micro/delineation-files.html).
@@ -62,14 +81,12 @@ get_metro_census <- function(census_year = 2018,
   # TODO expand to get more census data.
 
   census_api_key("d26bdb323e1a7649867b33225248dc93a8d3fb51")
-  
   us_pop <- get_acs(geography = geo, 
                     variables = c(population = "B01001_001E"), 
                     # state = "TX",
                     geometry = TRUE,
                     year = census_year)
-  
-  
+
   GET(metro_url, write_disk(tf <- tempfile(fileext = ".xls")))
   metro <- read_excel(tf,
                       col_types = "text", 
@@ -131,7 +148,6 @@ get_metro_ts <- function(metro_fips, ma_len = 7){
 #' RKI R_e(t) estimator with generation time GT (default GT=4)
 #' @param ts - Vector of integer values containing the time series of incident cases
 #' @param GT - PMF of the generation time is a fixed point mass at the value GT.
-
 est_rt_rki <- function(ts, GT=4L) {
   # Sanity check
   if (!is.integer(GT) | !(GT>0)) stop("GT has to be postive integer.")
@@ -142,16 +158,30 @@ est_rt_rki <- function(ts, GT=4L) {
 }
 
 get_metro_rt_rki <- function(ts, show_metro){
+  last_report <- ts %>% 
+    group_by(metro) %>% 
+    summarise(last_updated = max(date)) %>% 
+    ungroup()
+  
   metro_rt_rki <- ts %>% 
     filter(metro %in% show_metro) %>% 
     filter(confirmed > 0) %>% 
     # group_by(metro) %>% 
     split(.$metro) %>% 
-    map(~ est_rt_rki(.x$daily_new_case, GT = 4L)) %>% 
+    map(~ est_rt_rki(.x$daily_new_case_ma, GT = 4L)) %>% 
     enframe() %>% 
     unnest() %>% 
     drop_na() %>% 
     rename(metro = name, rt = value ) %>% 
+    left_join(last_report, by = "metro") %>% 
     group_by(metro) %>% 
-    mutate(days = row_number())
+    mutate(days = last_updated - days(n() - row_number())) %>% 
+    ungroup()
+}
+
+get_covidtracking_states <- function(states_url = "https://covidtracking.com/api/v1/states/daily.json"
+) {
+  fromJSON(states_url) %>% 
+    mutate(date = lubridate::ymd(date)) %>% 
+    mutate(pos_perc = positiveIncrease / totalTestResultsIncrease)
 }

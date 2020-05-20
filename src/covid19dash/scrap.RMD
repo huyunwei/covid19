@@ -10,7 +10,7 @@ source("util.R")
 # metro_fips <- get_metro_census()
 # save(metro_fips, file = "./data/metro.RDA")
 load("./data/metro.RDA")
-# ts_us <- get_metro_ts(metro_fips)
+ts_us <- get_metro_ts(metro_fips)
 # save(ts_us, file = "./data/ts.RDA") 
 load("./data/ts.RDA")
 ```
@@ -54,6 +54,7 @@ metro_rt_rki %>%
 ```{r}
 remotes::install_github("kjhealy/covdata")
 library(covdata)
+library(tidyverse)
 ## Libraries for the graphs
 # library(ggrepel)
 # library(paletteer)
@@ -122,23 +123,46 @@ cities <- c("Columbus", "Los Angeles", "Cleveland" ,"Atlanta" ,"Washington DC",
             "New York City", "Denver", "Miami", "Seattle", "Houston",
             "St. Louis", "Detroit", "New Orleans")
 
-apple_mobility %>% 
+plotly::ggplotly(apple_mobility %>% 
   filter(geo_type == "city") %>% 
   filter(region %in% cities) %>% 
-  filter(month(date) %in% c(3, 4)) %>% 
+  filter(lubridate::month(date) %in% c(3, 4, 5)) %>% 
   rename(mode = transportation_type) %>%
   ggplot(aes(x = date, y = index, group = mode, color = mode)) +
-  geom_line(size = 0.5) +
+  geom_point(size = 0.5, alpha = 0.5) +
   # scale_color_manual(values = my.colors("bly")) +
-  facet_wrap(~ region, ncol = 3) +
+  facet_wrap(~ region, ncol = 6) +
   labs(x = "Date", y = "Trend",
        color = "Mode",
        title = "All Modes, All Cities, Base Data",
        caption = "Data: Apple") + 
-  scale_y_log10() +
-  theme(legend.position = "top")
+  # scale_y_log10() +
+  theme(legend.position = "top") + 
+    ylim(0, 100) +
+    geom_smooth( #method = "lm", formula = y ~ splines::bs(x, 3), 
+                se = FALSE, size = 0.3)
+  )
 
 ```
+```{r}
+plotly::ggplotly(google_mobility %>% 
+  filter(country_region_code == "US",
+         sub_region_1 == "Texas",
+         sub_region_2 == "Harris County") %>% 
+  ggplot(aes(x = date, y = pct_diff, group = type, color = type)) +
+  geom_point(size = 0.5, alpha = 0.5) +
+  # scale_color_manual(values = my.colors("bly")) +
+  # facet_wrap(~ region, ncol = 5) +
+  labs(x = "Date", y = "Trend",
+       caption = "Data: Google") + 
+  # scale_y_log10() +
+  theme(legend.position = "top") + 
+    ylim(0, 100) +
+    geom_smooth( #method = "lm", formula = y ~ splines::bs(x, 3), 
+                se = FALSE, size = 0.3)
+  )
+```
+
 ```{r}
 all_cities <- apple_mobility %>% 
   filter(geo_type == "city") %>% 
@@ -168,5 +192,39 @@ apple_mobility %>%
                               subtitle = "Data are indexed to 100 for each city's usage on January 13th 2020",
        caption = "Data: Apple. Graph: @kjhealy") +
   theme_minimal()
+```
+```{r}
+test <- metro_ts %>% 
+  filter(date %in% c(ymd(20200424), ymd(20200423))) %>% 
+  filter(metro == "New York-Newark, NY-NJ-CT-PA") 
+
+## JHU missing NYC, NY 4/24 data in GitHub repo as of 20200425
+```
+```{r}
+# remotes::install_github("joachim-gassen/tidycovid19")
+library(tidyverse)
+library(tidycovid19)
+library(zoo)
+
+df <- download_merged_data(cached = TRUE, silent = TRUE)
+
+df %>%
+  filter(iso3c == "USA") %>%
+  mutate(
+    new_cases = confirmed - lag(confirmed),
+    ave_new_cases = rollmean(new_cases, 7, na.pad=TRUE, align="right")
+  ) %>%
+  filter(!is.na(new_cases), !is.na(ave_new_cases)) %>%
+  ggplot(aes(x = date)) +
+  geom_bar(aes(y = new_cases), stat = "identity", fill = "lightblue") +
+  geom_line(aes(y = ave_new_cases), color ="red") +
+  theme_minimal()
+```
+
+```{r}
+jhu_ts <- download_jhu_csse_covid19_data()
+apple_mob <- download_apple_mtr_data()
+apple_mob_city <- download_apple_mtr_data(type = "country_city")
+jhu_ts_us <- download_jhu_csse_covid19_data(type = "us_county")
 ```
 

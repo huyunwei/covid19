@@ -1,0 +1,80 @@
+---
+title: "Get Apple Mobility Data"
+output: html_notebook
+---
+Apple Mobility data can be downloaded from webpage, but the url is not stable. 
+
+Follow this [tutorial](https://www.ellessenne.xyz/2020/04/scraping-mobility-trends-data-from-apple/) here. 
+
+```{r}
+devtools::install_github("rstudio/chromote")
+library(chromote)
+library(tidyverse)
+library(plotly)
+library(lubridate)
+```
+Extracting the URL
+We start by loading the chromote package to open a new session and navigate to the page on Apple’s website:
+```{r}
+b <- ChromoteSession$new()
+b$Page$navigate("https://www.apple.com/covid19/mobility")
+Sys.sleep(5)
+```
+Here we suspend execution (using Sys.sleep() for 5 seconds to let the page load and render.
+
+We need to find something to identify the download button, and we can do that by using developer tools (e.g. on Firefox):
+We now know it’s in a div container of class .download-button-container: this is what we’re going to use to extract the URL automagically. Let’s do that, shall we?
+```{r}
+x <- b$DOM$getDocument()
+x <- b$DOM$querySelector(x$root$nodeId, ".download-button-container")
+x <- b$DOM$getOuterHTML(x$nodeId)$outerHTML
+x
+```
+```{r}
+library(stringr)
+url_pattern <- "http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+"
+url <- str_extract(string = x, pattern = url_pattern)
+url
+```
+
+Get the mobility data
+```{r}
+apple_mobility <- read_csv(file = url, col_types = cols(.default = "c")) %>% 
+  pivot_longer(-c("geo_type", "region", "transportation_type",
+                  "alternative_name", "sub-region","country" ), 
+               names_to = "date", values_to = "index") %>% 
+  mutate(date = lubridate::ymd(date),
+         index = as.numeric(index))
+  
+```
+
+
+```{r}
+cities <- c("Columbus", "Los Angeles", "Cleveland" ,"Atlanta" ,"Washington DC",
+                  "Baltimore", "Boston", "Hartford","Indianapolis", "Chicago",
+                  "Philadelphia", "San Francisco - Bay Area", "Dallas",
+                  "New York City", "Denver", "Miami", "Seattle", "Houston",
+                  "St. Louis", "Detroit", "New Orleans")
+ggplotly(
+       apple_mobility %>% 
+         filter(geo_type == "city") %>% 
+         filter(region %in% cities) %>% 
+         filter(month(date) %in% c(3, 4)) %>% 
+         rename(mode = transportation_type) %>%
+         ggplot(aes(x = date, y = index, group = mode, color = mode)) +
+         geom_point(size = 0.5, alpha = 0.5) +
+         # scale_color_manual(values = my.colors("bly")) +
+         facet_wrap(~ region, ncol = 3) +
+         labs(x = "Date", y = "Trend",
+              color = "Mode",
+              title = "All Modes, All Cities, Base Data",
+              caption = "Data: Apple") + 
+         # scale_y_log10() +
+         theme(legend.position = "top") + 
+         ylim(0, 150) +
+         geom_smooth(se = FALSE, size = 0.3) ,
+       height = 1600, width = 800
+      ) %>% 
+        plotly::layout(legend = list(orientation = "h", x = 0.5, y = 100))
+
+```
