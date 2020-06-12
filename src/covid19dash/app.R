@@ -46,6 +46,8 @@ ui <- dashboardPage(
                         min = 5,
                         max = 50,
                         value = 10),
+            checkboxInput("show_background", "Show Background", FALSE),
+            checkboxInput("per_cap", "Per 1000 residents", FALSE),
             checkboxGroupInput("show_metro", strong("Select Metro to Highlight"),
                                choices = NULL,
                                selected = NULL
@@ -97,7 +99,7 @@ ui <- dashboardPage(
                     )
             )
         )
-    ),
+    )
 )
 
 
@@ -110,7 +112,7 @@ server <- function(input, output, session) {
     get_covidtracking_states()
   })  
   metro_ts <- reactive({
-        get_metro_ts(metro_fips)
+        get_metro_ts(metro_fips, input$per_cap)
     })
     observeEvent(input$reload, {
         # print(paste("Updating ", format(Sys.time(), "%a %b %d %X %Y")))
@@ -118,7 +120,7 @@ server <- function(input, output, session) {
         get_appleMobility()
       })
       metro_ts <- reactive({
-            get_metro_ts(metro_fips)
+            get_metro_ts(metro_fips, input$per_cap)
             })
     })
     metro_total <- reactive({
@@ -130,7 +132,7 @@ server <- function(input, output, session) {
                   last_updated = max(date),
                   lat = mean(lat),
                   long = mean(long)) %>% 
-        arrange(desc(confirmed)) %>% 
+        arrange(desc(population)) %>% 
         ungroup()
     })
     metro_background <- reactive({
@@ -180,27 +182,29 @@ server <- function(input, output, session) {
             plotly::layout(legend = list(orientation = "h", x = 0, y = -0.3))
     })
     output$newCasePlot <- renderPlotly({
-        ggplotly( ggplot() + 
-                      geom_line(data = metro_background(),
-                                aes(x = days_from_nconfirmed, 
-                                    y = daily_new_case_ma, 
-                                    group = metro), alpha = 0.05)  + 
-                      geom_point(data = metro_background(), 
-                                 aes(x = days_from_nconfirmed, y = daily_new_case),
-                                 alpha = 0.05, size = 0.2) +
-                      geom_line(data = filter(metro_ts(), metro %in% input$show_metro),
-                                aes(x = days_from_nconfirmed, 
-                                    y = daily_new_case_ma, 
-                                    color = metro)) + 
-                      geom_point(data = filter(metro_ts(), metro %in% input$show_metro),
-                                aes(x = days_from_nconfirmed, 
-                                    y = daily_new_case, 
-                                    color = metro), 
-                                size = 0.5) + 
-                      scale_y_log10() +             
-                      labs(title = "Daily New Cases (7-day Moving Average", 
-                           x = "Days from 10th confirmed case")
-        ) %>% 
+      p <- ggplot() + 
+        geom_line(data = filter(metro_ts(), metro %in% input$show_metro),
+                  aes(x = days_from_nconfirmed, 
+                      y = daily_new_case_ma, 
+                      color = metro)) + 
+        geom_point(data = filter(metro_ts(), metro %in% input$show_metro),
+                   aes(x = days_from_nconfirmed, 
+                       y = daily_new_case, 
+                       color = metro), 
+                   size = 0.5) + 
+        labs(title = "Daily New Cases (7-day Moving Average)", 
+             x = "Days from 10th confirmed case")  
+      if(input$show_background){
+        p <- p + scale_y_log10() + 
+          geom_line(data = metro_background(),
+                    aes(x = days_from_nconfirmed, 
+                        y = daily_new_case_ma, 
+                        group = metro), alpha = 0.05)  + 
+          geom_point(data = metro_background(), 
+                     aes(x = days_from_nconfirmed, y = daily_new_case),
+                     alpha = 0.05, size = 0.2)
+      }
+      ggplotly(p) %>% 
             plotly::layout(legend = list(orientation = "h", x = 0, y = -0.3))
     })
     output$deathPlot <- renderPlotly({
@@ -227,27 +231,29 @@ server <- function(input, output, session) {
             plotly::layout(legend = list(orientation = "h", x = 0, y = -0.3))
     })
     output$newDeathPlot <- renderPlotly({
-        ggplotly( ggplot() + 
-                      geom_line(data = metro_background(),
-                                aes(x = days_from_ndeath, 
-                                    y = daily_new_death_ma, 
-                                    group = metro), 
-                                alpha = 0.05)  + 
-                      geom_point(data = metro_background(), 
-                                 aes(x = days_from_ndeath, y = daily_new_death),
-                                 alpha = 0.05, size = 0.2) +
-                      geom_line(data = filter(metro_ts(), metro %in% input$show_metro),
-                                aes(x = days_from_ndeath, 
-                                    y = daily_new_death_ma, 
-                                    color = metro)) + 
-                      geom_point(data = filter(metro_ts(), metro %in% input$show_metro),
-                                aes(x = days_from_ndeath, 
-                                    y = daily_new_death, 
-                                    color = metro)) + 
-                      scale_y_log10() +             
-                      labs(title = "Daily New Deaths (7-day Moving Average)", 
-                           x = "Days from 3rd death")
-        ) %>% 
+      p <- ggplot() + 
+        geom_line(data = filter(metro_ts(), metro %in% input$show_metro),
+                  aes(x = days_from_ndeath, 
+                      y = daily_new_death_ma, 
+                      color = metro)) + 
+        geom_point(data = filter(metro_ts(), metro %in% input$show_metro),
+                   aes(x = days_from_ndeath, 
+                       y = daily_new_death, 
+                       color = metro), size = 0.2) + 
+        labs(title = "Daily New Deaths (7-day Moving Average)", 
+             x = "Days from 3rd death")
+      if(input$show_background){
+        p <- p + scale_y_log10() + 
+          geom_line(data = metro_background(),
+                    aes(x = days_from_ndeath, 
+                        y = daily_new_death_ma, 
+                        group = metro), 
+                    alpha = 0.05)  + 
+          geom_point(data = metro_background(), 
+                     aes(x = days_from_ndeath, y = daily_new_death),
+                     alpha = 0.05, size = 0.2)
+      }
+      ggplotly(p) %>% 
             plotly::layout(legend = list(orientation = "h", x = 0, y = -0.3))
     })
     output$mapPlot <- renderPlot({

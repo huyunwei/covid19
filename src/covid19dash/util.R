@@ -11,7 +11,7 @@ suppressPackageStartupMessages({
 conflict_prefer("filter", "dplyr")
 conflict_prefer("lag", "dplyr")
 
-get_appleMobility <- function(){
+get_appleMobility_chrom <- function(){
   b <- ChromoteSession$new()
   b$Page$navigate("https://www.apple.com/covid19/mobility")
   Sys.sleep(5)
@@ -21,13 +21,23 @@ get_appleMobility <- function(){
   url_pattern <- "http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+"
   url <- str_extract(string = x, pattern = url_pattern)
   apple_mobility <- read_csv(file = url, col_types = cols(.default = "c")) %>% 
-    pivot_longer(-c("geo_type", "region", "transportation_type",
-                    "alternative_name", "sub-region","country" ), 
-                 names_to = "date", values_to = "index") %>% 
+    pivot_longer(cols = starts_with("2020-"), 
+                 names_to = "date", 
+                 values_to = "index") %>% 
     mutate(date = lubridate::ymd(date),
            index = as.numeric(index))
 }
 
+get_appleMobility <- function(){
+  getcmd = 'x=$(curl -s https://covid19-static.cdn-apple.com/covid19-mobility-data/current/v3/index.json); echo https://covid19-static.cdn-apple.com`jq -n "$x" |jq -r \'.basePath\'``jq -n "$x"|jq -r \'.regions."en-us".csvPath\'`'
+  url = system(getcmd, intern = T)
+  apple_mobility <- read_csv(file = url, col_types = cols(.default = "c")) %>% 
+    pivot_longer(cols = starts_with("2020-"), 
+                 names_to = "date", 
+                 values_to = "index") %>% 
+    mutate(date = lubridate::ymd(date),
+           index = as.numeric(index))
+}
 get_jhu_covid_usts <- function(jhu_url = "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/",
                                jhu_confirmed = "time_series_covid19_confirmed_US.csv",
                                jhu_death = "time_series_covid19_deaths_US.csv")
@@ -108,7 +118,7 @@ get_metro_census <- function(census_year = 2018,
 
 
 
-get_metro_ts <- function(metro_fips, ma_len = 7){
+get_metro_ts <- function(metro_fips, per_cap = FALSE, ma_len = 7){
   ts_us <- get_jhu_covid_usts()
   
   metro_pop_jhu <- ts_us %>% 
@@ -139,7 +149,24 @@ get_metro_ts <- function(metro_fips, ma_len = 7){
            daily_new_death = deaths - lag(deaths),
            daily_new_death_ma = (deaths - lag(deaths,ma_len))/ma_len) %>% 
     ungroup() %>% 
-    left_join(metro_pop_jhu, by = "metro")
+    left_join(metro_pop_jhu, by = "metro") %>% 
+    mutate(confirmed_per1000 = confirmed / population * 1000,
+           deaths_per1000 = deaths / population * 1000,
+           daily_new_case_per1000 = daily_new_case / population * 1000,
+           daily_new_case_ma_per1000 = daily_new_case_ma / population * 1000,
+           daily_new_death_per1000 = daily_new_death / population * 1000,
+           daily_new_death_ma_per1000 = daily_new_death_ma / population * 1000)
+  
+  if(per_cap){
+    metro_ts <- metro_ts %>% 
+      mutate(confirmed = confirmed_per1000,
+           deaths = deaths_per1000,
+           daily_new_case = daily_new_case_per1000,
+           daily_new_case_ma = daily_new_case_ma_per1000,
+           daily_new_death = daily_new_death_per1000,
+           daily_new_death_ma = daily_new_death_ma_per1000)
+  }
+  metro_ts
 }
 
 
