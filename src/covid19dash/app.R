@@ -46,6 +46,7 @@ ui <- dashboardPage(
                         min = 5,
                         max = 50,
                         value = 10),
+            checkboxInput("rel_date", "Date: from nth", FALSE),
             checkboxInput("show_background", "Show Background", FALSE),
             checkboxInput("per_cap", "Per 1000 residents", FALSE),
             checkboxGroupInput("show_metro", strong("Select Metro to Highlight"),
@@ -157,100 +158,128 @@ server <- function(input, output, session) {
     })
     output$casePlot <- renderPlotly({
         p_backgroud <- ggplot(data = metro_background(),
-                              aes(x = days_from_nconfirmed, 
-                                  y = confirmed)) + 
+                              aes_string(
+                                x = ifelse(input$rel_date, 
+                                           "days_from_nconfirmed", 
+                                           "date"),
+                                y = "confirmed")) + 
             geom_line(aes(group = metro), alpha = 0.1)  + 
             geom_point(alpha = 0.1, size = 0.2)
         ggplotly( p_backgroud +
             geom_line(data = filter(metro_ts(), metro %in% input$show_metro),
-                      aes(x = days_from_nconfirmed, 
-                          y = confirmed, 
-                          color = metro)) +
+                      aes_string(
+                        x = ifelse(input$rel_date, 
+                                   "days_from_nconfirmed", 
+                                   "date"),
+                        y = "confirmed",
+                        color = "metro")) +
             geom_point(data = filter(metro_ts(), metro %in% input$show_metro),
-                        aes(x = days_from_nconfirmed, 
-                            y = confirmed, 
-                            color = metro), 
-                       size = 0.5 ) + 
+                       aes_string(
+                         x = ifelse(input$rel_date, 
+                                    "days_from_nconfirmed", 
+                                    "date"),
+                         y = "confirmed",
+                         color = "metro"),
+                         size = 0.5 ) + 
             scale_y_log10() +             
-            geom_line(data = baselines, 
-                      aes(x = days, y = 10 * count, group = rate),
-                      alpha = 0.1,
-                      show.legend = FALSE) + 
+            # geom_line(data = baselines, 
+            #          aes(x = days, y = 10 * count, group = rate),
+            #          alpha = 0.1,
+            #          show.legend = FALSE) + 
             labs(title = "Confirmed Case", 
-                 x = "Days from 10th confirmed case")
+                 x = ifelse(input$rel_date, 
+                            "Days from 10th confirmed case", 
+                            "date"))
         ) %>% 
             plotly::layout(legend = list(orientation = "h", x = 0, y = -0.3))
     })
     output$newCasePlot <- renderPlotly({
+      x_ax = ifelse(input$rel_date, 
+                    "days_from_nconfirmed", 
+                    "date")
       p <- ggplot() + 
         geom_line(data = filter(metro_ts(), metro %in% input$show_metro),
-                  aes(x = days_from_nconfirmed, 
-                      y = daily_new_case_ma, 
-                      color = metro)) + 
+                  aes_string(
+                    x = x_ax, 
+                    y = "daily_new_case_ma", 
+                    color = "metro")) + 
         geom_point(data = filter(metro_ts(), metro %in% input$show_metro),
-                   aes(x = days_from_nconfirmed, 
-                       y = daily_new_case, 
-                       color = metro), 
+                   aes_string(
+                     x = x_ax, 
+                     y = "daily_new_case", 
+                     color = "metro"), 
                    size = 0.5) + 
         labs(title = "Daily New Cases (7-day Moving Average)", 
-             x = "Days from 10th confirmed case")  
+             x = ifelse(input$rel_date, 
+                        "Days from 10th confirmed case", 
+                        "date"))  
       if(input$show_background){
         p <- p + scale_y_log10() + 
           geom_line(data = metro_background(),
-                    aes(x = days_from_nconfirmed, 
-                        y = daily_new_case_ma, 
-                        group = metro), alpha = 0.05)  + 
+                    aes_string(
+                      x = x_ax, 
+                      y = "daily_new_case_ma", 
+                      group = "metro"), 
+                    alpha = 0.05)  + 
           geom_point(data = metro_background(), 
-                     aes(x = days_from_nconfirmed, y = daily_new_case),
+                     aes_string(x = x_ax, y = daily_new_case),
                      alpha = 0.05, size = 0.2)
       }
       ggplotly(p) %>% 
             plotly::layout(legend = list(orientation = "h", x = 0, y = -0.3))
     })
+    ### Plot - Culmulative Deaths
     output$deathPlot <- renderPlotly({
-        dp <- metro_ts() %>% 
-            filter(metro %in% metro_total()$metro[1:input$top_n]) %>% 
-            ggplot(aes(x = days_from_ndeath, 
-                       y = deaths, 
-                       group = metro)) + 
+      x_ax <-   ifelse(input$rel_date, 
+                       "days_from_ndeath", 
+                       "date")
+      dp <- metro_ts() %>% 
+        filter(metro %in% metro_total()$metro[1:input$top_n]) %>% 
+        ggplot(aes_string(x = x_ax, y = "deaths", group = "metro")) + 
           geom_line(alpha = 0.05)  + 
           geom_point(alpha = 0.05, size = 0.2) +
           geom_line(data = filter(metro_ts(), metro %in% input$show_metro),
-                      aes(x = days_from_ndeath, 
-                          y = deaths, 
-                          color = metro)) + 
+                      aes_string(x = x_ax, y = "deaths", color = "metro")) + 
           geom_point(data = filter(metro_ts(), metro %in% input$show_metro),
-                    aes(x = days_from_ndeath, 
-                        y = deaths, 
-                        color = metro), 
+                    aes_string(x = x_ax, 
+                               y = "deaths", 
+                               color = "metro"), 
                     size = 0.5) + 
             theme(legend.position = "bottom") +
             scale_y_log10() + 
-            labs(title = "Deaths", x = "Days from 3rd death")
+            labs(title = "Deaths", 
+                 x = ifelse(input$rel_date, 
+                            "Days_from_3rd Deaths", 
+                            "Date"))
         ggplotly(dp) %>% 
             plotly::layout(legend = list(orientation = "h", x = 0, y = -0.3))
     })
     output$newDeathPlot <- renderPlotly({
+      x_ax = ifelse(input$rel_date, 
+                    "days_from_ndeath", 
+                    "date")
       p <- ggplot() + 
         geom_line(data = filter(metro_ts(), metro %in% input$show_metro),
-                  aes(x = days_from_ndeath, 
-                      y = daily_new_death_ma, 
-                      color = metro)) + 
+                  aes_string(x = x_ax,
+                             y = "daily_new_death_ma",
+                             color = "metro")) + 
         geom_point(data = filter(metro_ts(), metro %in% input$show_metro),
-                   aes(x = days_from_ndeath, 
-                       y = daily_new_death, 
-                       color = metro), size = 0.2) + 
+                   aes_string(x = x_ax, 
+                              y = "daily_new_death", 
+                              color = "metro"), size = 0.2) + 
         labs(title = "Daily New Deaths (7-day Moving Average)", 
-             x = "Days from 3rd death")
+             x = ifelse(input$rel_date,
+                        "Days from 3rd death",
+                        "Date") )
       if(input$show_background){
         p <- p + scale_y_log10() + 
           geom_line(data = metro_background(),
-                    aes(x = days_from_ndeath, 
-                        y = daily_new_death_ma, 
-                        group = metro), 
+                    aes_string(x = x_ax, 
+                               y = "daily_new_death_ma",
+                               group = "metro"), 
                     alpha = 0.05)  + 
           geom_point(data = metro_background(), 
-                     aes(x = days_from_ndeath, y = daily_new_death),
+                     aes_string(x = x_ax, y = "daily_new_death"),
                      alpha = 0.05, size = 0.2)
       }
       ggplotly(p) %>% 
